@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(curl -s https://api.github.com/repos/Tracktion/tracktion_engine/contents/?ref=develop)",
+      "Bash(python3 -c \"import sys,json; [print\\(x[''''name'''']\\) for x in json.loads\\(sys.stdin.read\\(\\)\\)]\")"
+    ]
+  }
+}

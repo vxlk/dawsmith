@@ -1,0 +1,29 @@
+# Build
+build/
+_skbuild/
+dist/
+*.egg-info/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.so
+
+# VST plugins (user-supplied, not committed)
+vsts/
+
+# IDE
+.vscode/
+.idea/
+*.suo
+*.user
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Output files
+*.wav
+*.mid
