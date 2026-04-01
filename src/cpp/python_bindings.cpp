@@ -14,6 +14,12 @@ using namespace dawsmith;
 NB_MODULE(_native, m) {
     m.doc() = "DAWsmith native bindings";
 
+    // Register custom exceptions so Python gets clean types.
+    nb::exception<EngineDestroyedError>(m, "EngineDestroyedError",
+                                         PyExc_RuntimeError);
+    nb::exception<ObjectDeletedError>(m, "ObjectDeletedError",
+                                       PyExc_RuntimeError);
+
     nb::class_<PluginDescription>(m, "PluginDescription")
         .def_ro("name", &PluginDescription::name)
         .def_ro("manufacturer", &PluginDescription::manufacturer)
@@ -50,11 +56,11 @@ NB_MODULE(_native, m) {
     nb::class_<Track>(m, "Track")
         .def("get_name", &Track::get_name)
         .def("insert_midi_clip", &Track::insert_midi_clip,
-             nb::rv_policy::reference,
+             nb::rv_policy::reference_internal,   // ref + keep Track alive
              nb::arg("name"), nb::arg("start_beat"),
              nb::arg("length_beats"))
         .def("insert_plugin", &Track::insert_plugin,
-             nb::rv_policy::reference,
+             nb::rv_policy::reference_internal,   // ref + keep Track alive
              nb::arg("identifier"))
         .def("set_volume", &Track::set_volume)
         .def("set_pan", &Track::set_pan)
@@ -62,7 +68,7 @@ NB_MODULE(_native, m) {
 
     nb::class_<Edit>(m, "Edit")
         .def("insert_audio_track", &Edit::insert_audio_track,
-             nb::rv_policy::reference,
+             nb::rv_policy::reference_internal,   // ref + keep Edit alive
              nb::arg("name"))
         .def("set_tempo", &Edit::set_tempo)
         .def("render", &Edit::render)
@@ -73,6 +79,7 @@ NB_MODULE(_native, m) {
 
     nb::class_<Engine>(m, "Engine")
         .def("create_edit", &Engine::create_edit,
+             nb::keep_alive<0, 1>(),              // Edit keeps Engine alive
              nb::arg("bpm") = 120.0)
         .def("scan_plugins", &Engine::scan_plugins,
              nb::arg("path") = "")

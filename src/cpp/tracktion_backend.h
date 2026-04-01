@@ -11,14 +11,69 @@
 
 #include <vector>
 #include <memory>
+#include <atomic>
+#include <mutex>
 
 namespace dawsmith {
 
 namespace te = tracktion;
 
+// ---------------------------------------------------------------------------
+// LifetimeGuard -- encapsulates parent-alive checking and own-flag management.
+//
+//   * Leaf objects (MidiClip, Plugin): construct with parent flag only.
+//   * Parent objects (Track, Edit):    construct with parent flag + create_own_flag=true.
+//   * Root objects (Engine):           construct with nullptr   + create_own_flag=true.
+// ---------------------------------------------------------------------------
+
+class LifetimeGuard {
+public:
+    explicit LifetimeGuard(std::shared_ptr<std::atomic<bool>> parent_alive,
+                           bool create_own_flag = false)
+        : parent_alive_(std::move(parent_alive))
+    {
+        if (create_own_flag)
+            alive_ = std::make_shared<std::atomic<bool>>(true);
+    }
+
+    ~LifetimeGuard() { invalidate(); }
+
+    LifetimeGuard(const LifetimeGuard&) = delete;
+    LifetimeGuard& operator=(const LifetimeGuard&) = delete;
+    LifetimeGuard(LifetimeGuard&&) noexcept = default;
+    LifetimeGuard& operator=(LifetimeGuard&&) noexcept = default;
+
+    // Check that the parent is still alive.  ExceptionT defaults to
+    // ObjectDeletedError; Edit overrides with EngineDestroyedError.
+    template <typename ExceptionT = ObjectDeletedError>
+    void check(const char* msg) const {
+        if (parent_alive_ && !parent_alive_->load(std::memory_order_acquire))
+            throw ExceptionT(msg);
+    }
+
+    // Mark this object as dead.  Idempotent -- safe to call from destructor
+    // body AND again when the member is implicitly destroyed.
+    void invalidate() noexcept {
+        if (alive_)
+            alive_->store(false, std::memory_order_release);
+    }
+
+    // The flag that children should hold.
+    std::shared_ptr<std::atomic<bool>> flag() const { return alive_; }
+
+private:
+    std::shared_ptr<std::atomic<bool>> parent_alive_;
+    std::shared_ptr<std::atomic<bool>> alive_;
+};
+
+// ---------------------------------------------------------------------------
+// Tracktion wrapper classes
+// ---------------------------------------------------------------------------
+
 class TracktionMidiClip : public MidiClip {
 public:
-    explicit TracktionMidiClip(te::MidiClip::Ptr clip, te::Edit& edit);
+    TracktionMidiClip(te::MidiClip::Ptr clip, te::Edit& edit,
+                      std::shared_ptr<std::atomic<bool>> parent_alive);
     void add_note(int pitch, double start_beat, double length_beats,
                   int velocity) override;
     void clear_notes() override;
@@ -27,11 +82,13 @@ public:
 private:
     te::MidiClip::Ptr clip_;
     te::Edit& edit_;
+    LifetimeGuard lifetime_;
 };
 
 class TracktionPlugin : public Plugin {
 public:
-    explicit TracktionPlugin(te::Plugin::Ptr plugin);
+    TracktionPlugin(te::Plugin::Ptr plugin,
+                    std::shared_ptr<std::atomic<bool>> parent_alive);
     std::string get_name() const override;
     int get_parameter_count() const override;
     std::string get_parameter_name(int index) const override;
@@ -41,12 +98,15 @@ public:
 
 private:
     te::Plugin::Ptr plugin_;
+    LifetimeGuard lifetime_;
 };
 
 class TracktionTrack : public Track {
 public:
     TracktionTrack(te::AudioTrack* track, te::Edit& edit,
-                   te::Engine& engine);
+                   te::Engine& engine,
+                   std::shared_ptr<std::atomic<bool>> parent_alive);
+    ~TracktionTrack() override;
     std::string get_name() const override;
     MidiClip* insert_midi_clip(const std::string& name,
                                double start_beat,
@@ -60,6 +120,7 @@ private:
     te::AudioTrack* track_;
     te::Edit& edit_;
     te::Engine& engine_;
+    LifetimeGuard lifetime_;   // parent flag + own flag for children
     std::vector<std::unique_ptr<TracktionMidiClip>> clips_;
     std::vector<std::unique_ptr<TracktionPlugin>> plugins_;
 };
@@ -67,7 +128,9 @@ private:
 class TracktionEdit : public Edit {
 public:
     TracktionEdit(std::unique_ptr<te::Edit> edit,
-                  std::shared_ptr<te::Engine> engine);
+                  std::shared_ptr<te::Engine> engine,
+                  std::shared_ptr<juce::ScopedJuceInitialiser_GUI> juce_init,
+                  std::shared_ptr<std::atomic<bool>> engine_alive);
     ~TracktionEdit() override;
     Track* insert_audio_track(const std::string& name) override;
     void set_tempo(double bpm) override;
@@ -78,10 +141,16 @@ public:
     double get_position_seconds() const override;
 
 private:
+    // Declaration order matters for destruction: juce_init_ destroyed LAST.
+    std::shared_ptr<juce::ScopedJuceInitialiser_GUI> juce_init_;  // JUCE lifetime
+    std::shared_ptr<te::Engine> engine_;
     std::unique_ptr<te::Edit> edit_;
-    std::shared_ptr<te::Engine> engine_;  // shared to outlive edits
+    LifetimeGuard lifetime_;   // engine-alive flag + own flag for children
     std::vector<std::unique_ptr<TracktionTrack>> tracks_;
 };
+
+// Shared JUCE initialiser -- ensures JUCE lives as long as any Engine or Edit.
+std::shared_ptr<juce::ScopedJuceInitialiser_GUI> get_shared_juce_init();
 
 class TracktionEngine : public Engine {
 public:
@@ -92,8 +161,10 @@ public:
     std::vector<PluginDescription> get_available_plugins() const override;
 
 private:
-    juce::ScopedJuceInitialiser_GUI juce_init_;
-    std::shared_ptr<te::Engine> engine_;  // shared with edits
+    // Declaration order: juce_init_ destroyed LAST, engine_ before it.
+    std::shared_ptr<juce::ScopedJuceInitialiser_GUI> juce_init_;
+    std::shared_ptr<te::Engine> engine_;
+    LifetimeGuard lifetime_{nullptr, true};  // root: no parent, creates own flag
 };
 
 }  // namespace dawsmith

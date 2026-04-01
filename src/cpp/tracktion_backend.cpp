@@ -11,14 +11,32 @@ namespace dawsmith {
 namespace te = tracktion;
 
 // ---------------------------------------------------------------------------
+// Shared JUCE initialiser (singleton via weak_ptr)
+// ---------------------------------------------------------------------------
+
+std::shared_ptr<juce::ScopedJuceInitialiser_GUI> get_shared_juce_init() {
+    static std::mutex mtx;
+    static std::weak_ptr<juce::ScopedJuceInitialiser_GUI> s_instance;
+    std::lock_guard<std::mutex> lock(mtx);
+    auto ptr = s_instance.lock();
+    if (!ptr) {
+        ptr = std::make_shared<juce::ScopedJuceInitialiser_GUI>();
+        s_instance = ptr;
+    }
+    return ptr;
+}
+
+// ---------------------------------------------------------------------------
 // TracktionMidiClip
 // ---------------------------------------------------------------------------
 
-TracktionMidiClip::TracktionMidiClip(te::MidiClip::Ptr clip, te::Edit& edit)
-    : clip_(clip), edit_(edit) {}
+TracktionMidiClip::TracktionMidiClip(te::MidiClip::Ptr clip, te::Edit& edit,
+                                      std::shared_ptr<std::atomic<bool>> parent_alive)
+    : clip_(clip), edit_(edit), lifetime_(std::move(parent_alive)) {}
 
 void TracktionMidiClip::add_note(int pitch, double start_beat,
                                   double length_beats, int velocity) {
+    lifetime_.check("Parent Track has been deleted");
     if (!clip_) return;
     auto& sequence = clip_->getSequence();
     sequence.addNote(
@@ -31,11 +49,13 @@ void TracktionMidiClip::add_note(int pitch, double start_beat,
 }
 
 void TracktionMidiClip::clear_notes() {
+    lifetime_.check("Parent Track has been deleted");
     if (!clip_) return;
     clip_->getSequence().clear(nullptr);
 }
 
 std::string TracktionMidiClip::get_name() const {
+    lifetime_.check("Parent Track has been deleted");
     if (!clip_) return "";
     return clip_->getName().toStdString();
 }
@@ -44,20 +64,24 @@ std::string TracktionMidiClip::get_name() const {
 // TracktionPlugin
 // ---------------------------------------------------------------------------
 
-TracktionPlugin::TracktionPlugin(te::Plugin::Ptr plugin)
-    : plugin_(plugin) {}
+TracktionPlugin::TracktionPlugin(te::Plugin::Ptr plugin,
+                                  std::shared_ptr<std::atomic<bool>> parent_alive)
+    : plugin_(plugin), lifetime_(std::move(parent_alive)) {}
 
 std::string TracktionPlugin::get_name() const {
+    lifetime_.check("Parent Track has been deleted");
     if (!plugin_) return "";
     return plugin_->getName().toStdString();
 }
 
 int TracktionPlugin::get_parameter_count() const {
+    lifetime_.check("Parent Track has been deleted");
     if (!plugin_) return 0;
     return plugin_->getAutomatableParameters().size();
 }
 
 std::string TracktionPlugin::get_parameter_name(int index) const {
+    lifetime_.check("Parent Track has been deleted");
     if (!plugin_) return "";
     auto params = plugin_->getAutomatableParameters();
     if (index < 0 || index >= params.size()) return "";
@@ -65,6 +89,7 @@ std::string TracktionPlugin::get_parameter_name(int index) const {
 }
 
 float TracktionPlugin::get_parameter_value(int index) const {
+    lifetime_.check("Parent Track has been deleted");
     if (!plugin_) return 0.0f;
     auto params = plugin_->getAutomatableParameters();
     if (index < 0 || index >= params.size()) return 0.0f;
@@ -72,6 +97,7 @@ float TracktionPlugin::get_parameter_value(int index) const {
 }
 
 void TracktionPlugin::set_parameter_value(int index, float value) {
+    lifetime_.check("Parent Track has been deleted");
     if (!plugin_) return;
     auto params = plugin_->getAutomatableParameters();
     if (index < 0 || index >= params.size()) return;
@@ -79,6 +105,7 @@ void TracktionPlugin::set_parameter_value(int index, float value) {
 }
 
 bool TracktionPlugin::is_loaded() const {
+    lifetime_.check("Parent Track has been deleted");
     if (!plugin_) return false;
     return true;
 }
@@ -88,10 +115,17 @@ bool TracktionPlugin::is_loaded() const {
 // ---------------------------------------------------------------------------
 
 TracktionTrack::TracktionTrack(te::AudioTrack* track, te::Edit& edit,
-                               te::Engine& engine)
-    : track_(track), edit_(edit), engine_(engine) {}
+                               te::Engine& engine,
+                               std::shared_ptr<std::atomic<bool>> parent_alive)
+    : track_(track), edit_(edit), engine_(engine),
+      lifetime_(std::move(parent_alive), true) {}
+
+TracktionTrack::~TracktionTrack() {
+    lifetime_.invalidate();
+}
 
 std::string TracktionTrack::get_name() const {
+    lifetime_.check("Parent Edit has been deleted");
     if (!track_) return "";
     return track_->getName().toStdString();
 }
@@ -99,6 +133,7 @@ std::string TracktionTrack::get_name() const {
 MidiClip* TracktionTrack::insert_midi_clip(const std::string& name,
                                             double start_beat,
                                             double length_beats) {
+    lifetime_.check("Parent Edit has been deleted");
     if (!track_) return nullptr;
 
     auto& tempoSeq = edit_.tempoSequence;
@@ -112,13 +147,15 @@ MidiClip* TracktionTrack::insert_midi_clip(const std::string& name,
     if (clipRef != nullptr)
         clipRef->setName(juce::String(name));
 
-    auto wrapper = std::make_unique<TracktionMidiClip>(clipRef, edit_);
+    auto wrapper = std::make_unique<TracktionMidiClip>(clipRef, edit_,
+                                                        lifetime_.flag());
     auto* ptr = wrapper.get();
     clips_.push_back(std::move(wrapper));
     return ptr;
 }
 
 Plugin* TracktionTrack::insert_plugin(const std::string& identifier) {
+    lifetime_.check("Parent Edit has been deleted");
     if (!track_) return nullptr;
 
     te::Plugin::Ptr plugin;
@@ -146,13 +183,14 @@ Plugin* TracktionTrack::insert_plugin(const std::string& identifier) {
 
     track_->pluginList.insertPlugin(plugin, -1, nullptr);
 
-    auto wrapper = std::make_unique<TracktionPlugin>(plugin);
+    auto wrapper = std::make_unique<TracktionPlugin>(plugin, lifetime_.flag());
     auto* ptr = wrapper.get();
     plugins_.push_back(std::move(wrapper));
     return ptr;
 }
 
 void TracktionTrack::set_volume(double linear) {
+    lifetime_.check("Parent Edit has been deleted");
     if (!track_) return;
     if (auto vol = track_->getVolumePlugin()) {
         float db = (linear <= 0.0) ? -100.0f
@@ -162,6 +200,7 @@ void TracktionTrack::set_volume(double linear) {
 }
 
 void TracktionTrack::set_pan(double pan) {
+    lifetime_.check("Parent Edit has been deleted");
     if (!track_) return;
     if (auto vol = track_->getVolumePlugin()) {
         vol->setPan(static_cast<float>(pan));
@@ -169,6 +208,7 @@ void TracktionTrack::set_pan(double pan) {
 }
 
 void TracktionTrack::set_mute(bool muted) {
+    lifetime_.check("Parent Edit has been deleted");
     if (!track_) return;
     track_->setMute(muted);
 }
@@ -178,16 +218,24 @@ void TracktionTrack::set_mute(bool muted) {
 // ---------------------------------------------------------------------------
 
 TracktionEdit::TracktionEdit(std::unique_ptr<te::Edit> edit,
-                             std::shared_ptr<te::Engine> engine)
-    : edit_(std::move(edit)), engine_(std::move(engine)) {}
+                             std::shared_ptr<te::Engine> engine,
+                             std::shared_ptr<juce::ScopedJuceInitialiser_GUI> juce_init,
+                             std::shared_ptr<std::atomic<bool>> engine_alive)
+    : juce_init_(std::move(juce_init)),
+      engine_(std::move(engine)),
+      edit_(std::move(edit)),
+      lifetime_(std::move(engine_alive), true) {}
 
 TracktionEdit::~TracktionEdit() {
-    // Ensure edit is destroyed before engine (edit references engine internals)
+    lifetime_.invalidate();
+    // Ensure children are destroyed before the edit/engine they reference.
     tracks_.clear();
     edit_.reset();
+    // engine_ and juce_init_ released implicitly in reverse declaration order.
 }
 
 Track* TracktionEdit::insert_audio_track(const std::string& name) {
+    lifetime_.check<EngineDestroyedError>("Engine has been destroyed");
     if (!edit_) return nullptr;
 
     edit_->ensureNumberOfAudioTracks(
@@ -200,18 +248,21 @@ Track* TracktionEdit::insert_audio_track(const std::string& name) {
     auto* audioTrack = tracks.getLast();
     audioTrack->setName(juce::String(name));
 
-    auto wrapper = std::make_unique<TracktionTrack>(audioTrack, *edit_, *engine_);
+    auto wrapper = std::make_unique<TracktionTrack>(audioTrack, *edit_, *engine_,
+                                                     lifetime_.flag());
     auto* ptr = wrapper.get();
     tracks_.push_back(std::move(wrapper));
     return ptr;
 }
 
 void TracktionEdit::set_tempo(double bpm) {
+    lifetime_.check<EngineDestroyedError>("Engine has been destroyed");
     if (!edit_) return;
     edit_->tempoSequence.getTempo(0)->setBpm(bpm);
 }
 
 void TracktionEdit::render(const RenderOptions& options) {
+    lifetime_.check<EngineDestroyedError>("Engine has been destroyed");
     if (!edit_) return;
 
     juce::File outputFile;
@@ -234,34 +285,63 @@ void TracktionEdit::render(const RenderOptions& options) {
     }
 }
 
+// Message-pump rationale:
+// JUCE has no promise/future system for message dispatch.  Its internal state
+// changes (audio-device init, transport start/stop, ValueTree listeners) are
+// all delivered through a single-threaded message loop -- designed for GUI apps
+// where the loop runs forever.  DAWsmith is headless, so no loop is running.
+// We manually pump in small slices until the desired state is reached.
+//
+// Future improvement: expose an explicit engine.pump() to Python and/or run
+// the MessageManager on a dedicated background thread so Python calls can
+// post work and await a semaphore instead of blocking here.
+
 void TracktionEdit::play() {
+    lifetime_.check<EngineDestroyedError>("Engine has been destroyed");
     if (!edit_) return;
 
-    // In a headless Python host, the JUCE message loop isn't running.
-    // Pump it before play to ensure the audio device is fully initialized
-    // (DeviceManager setup involves async callbacks that need dispatching).
-    if (auto* mm = juce::MessageManager::getInstanceWithoutCreating())
-        mm->runDispatchLoopUntil(200);
+    auto* mm = juce::MessageManager::getInstanceWithoutCreating();
+
+    // Dispatch any pending device-initialisation callbacks.
+    if (mm) mm->runDispatchLoopUntil(50);
 
     auto& transport = edit_->getTransport();
     transport.setPosition(te::TimePosition::fromSeconds(0.0));
     transport.play(false);
 
-    // Pump again so transport state changes and EditPlaybackContext setup
-    // (triggered by ValueTree listeners) can complete.
-    if (auto* mm = juce::MessageManager::getInstanceWithoutCreating())
-        mm->runDispatchLoopUntil(200);
+    // Pump until transport confirms playing, with timeout.
+    if (mm) {
+        constexpr int timeout_ms = 2000;
+        auto start = juce::Time::getMillisecondCounter();
+        while (!transport.isPlaying()) {
+            mm->runDispatchLoopUntil(10);
+            if (static_cast<int>(juce::Time::getMillisecondCounter() - start) > timeout_ms)
+                break;
+        }
+    }
 }
 
 void TracktionEdit::stop() {
+    lifetime_.check<EngineDestroyedError>("Engine has been destroyed");
     if (!edit_) return;
-    edit_->getTransport().stop(false, false);
 
-    if (auto* mm = juce::MessageManager::getInstanceWithoutCreating())
-        mm->runDispatchLoopUntil(50);
+    auto& transport = edit_->getTransport();
+    transport.stop(false, false);
+
+    // Pump until transport confirms stopped, with timeout.
+    if (auto* mm = juce::MessageManager::getInstanceWithoutCreating()) {
+        constexpr int timeout_ms = 500;
+        auto start = juce::Time::getMillisecondCounter();
+        while (transport.isPlaying()) {
+            mm->runDispatchLoopUntil(10);
+            if (static_cast<int>(juce::Time::getMillisecondCounter() - start) > timeout_ms)
+                break;
+        }
+    }
 }
 
 bool TracktionEdit::is_playing() const {
+    lifetime_.check<EngineDestroyedError>("Engine has been destroyed");
     if (!edit_) return false;
     // Pump message loop so transport state stays current
     if (auto* mm = juce::MessageManager::getInstanceWithoutCreating())
@@ -270,6 +350,7 @@ bool TracktionEdit::is_playing() const {
 }
 
 double TracktionEdit::get_position_seconds() const {
+    lifetime_.check<EngineDestroyedError>("Engine has been destroyed");
     if (!edit_) return 0.0;
     // Pump message loop so position updates flow from audio thread
     if (auto* mm = juce::MessageManager::getInstanceWithoutCreating())
@@ -282,7 +363,8 @@ double TracktionEdit::get_position_seconds() const {
 // ---------------------------------------------------------------------------
 
 TracktionEngine::TracktionEngine(const std::string& app_name)
-    : engine_(std::make_shared<te::Engine>(
+    : juce_init_(get_shared_juce_init()),
+      engine_(std::make_shared<te::Engine>(
           juce::String(app_name),
           nullptr,   // no PropertyStorage
           nullptr))  // no UIBehaviour
@@ -290,7 +372,9 @@ TracktionEngine::TracktionEngine(const std::string& app_name)
 }
 
 TracktionEngine::~TracktionEngine() {
+    lifetime_.invalidate();
     engine_.reset();
+    // juce_init_ released implicitly -- JUCE stays alive if Edits still hold it.
 }
 
 std::unique_ptr<Edit> TracktionEngine::create_edit(double bpm) {
@@ -301,7 +385,8 @@ std::unique_ptr<Edit> TracktionEngine::create_edit(double bpm) {
     auto edit = te::createEmptyEdit(*engine_, tempFile);
     edit->tempoSequence.getTempo(0)->setBpm(bpm);
 
-    return std::make_unique<TracktionEdit>(std::move(edit), engine_);
+    return std::make_unique<TracktionEdit>(std::move(edit), engine_,
+                                            juce_init_, lifetime_.flag());
 }
 
 void TracktionEngine::scan_plugins(const std::string& path) {

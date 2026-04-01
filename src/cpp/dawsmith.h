@@ -5,8 +5,21 @@
 #include <string>
 #include <vector>
 #include <memory>
+#include <stdexcept>
 
 namespace dawsmith {
+
+// Exception thrown when accessing an object whose Engine has been destroyed.
+class EngineDestroyedError : public std::runtime_error {
+public:
+    using std::runtime_error::runtime_error;
+};
+
+// Exception thrown when accessing a child object whose parent has been deleted.
+class ObjectDeletedError : public std::runtime_error {
+public:
+    using std::runtime_error::runtime_error;
+};
 
 struct PluginDescription {
     std::string name;
