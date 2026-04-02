@@ -61,6 +61,72 @@ std::string TracktionMidiClip::get_name() const {
 }
 
 // ---------------------------------------------------------------------------
+// TracktionAudioClip
+// ---------------------------------------------------------------------------
+
+TracktionAudioClip::TracktionAudioClip(te::WaveAudioClip::Ptr clip, te::Edit& edit,
+                                        std::shared_ptr<std::atomic<bool>> parent_alive)
+    : clip_(clip), edit_(edit), lifetime_(std::move(parent_alive)) {}
+
+std::string TracktionAudioClip::get_name() const {
+    lifetime_.check("Parent Track has been deleted");
+    if (!clip_) return "";
+    return clip_->getName().toStdString();
+}
+
+std::string TracktionAudioClip::get_file_path() const {
+    lifetime_.check("Parent Track has been deleted");
+    if (!clip_) return "";
+    return clip_->getOriginalFile().getFullPathName().toStdString();
+}
+
+double TracktionAudioClip::get_start_beat() const {
+    lifetime_.check("Parent Track has been deleted");
+    if (!clip_) return 0.0;
+    auto startTime = clip_->getPosition().time.getStart();
+    return edit_.tempoSequence.timeToBeats(startTime).inBeats();
+}
+
+double TracktionAudioClip::get_length_beats() const {
+    lifetime_.check("Parent Track has been deleted");
+    if (!clip_) return 0.0;
+    auto pos = clip_->getPosition().time;
+    auto startBeat = edit_.tempoSequence.timeToBeats(pos.getStart());
+    auto endBeat = edit_.tempoSequence.timeToBeats(pos.getEnd());
+    return (endBeat - startBeat).inBeats();
+}
+
+void TracktionAudioClip::set_gain(double linear) {
+    lifetime_.check("Parent Track has been deleted");
+    if (!clip_) return;
+    float db = (linear <= 0.0) ? -100.0f
+               : static_cast<float>(juce::Decibels::gainToDecibels(linear));
+    clip_->setGainDB(db);
+}
+
+double TracktionAudioClip::get_gain() const {
+    lifetime_.check("Parent Track has been deleted");
+    if (!clip_) return 1.0;
+    return static_cast<double>(clip_->getGain());
+}
+
+void TracktionAudioClip::set_loop(bool looping) {
+    lifetime_.check("Parent Track has been deleted");
+    if (!clip_) return;
+    if (looping) {
+        clip_->setNumberOfLoops(1000000);
+    } else {
+        clip_->disableLooping();
+    }
+}
+
+bool TracktionAudioClip::get_loop() const {
+    lifetime_.check("Parent Track has been deleted");
+    if (!clip_) return false;
+    return clip_->isLooping();
+}
+
+// ---------------------------------------------------------------------------
 // TracktionPlugin
 // ---------------------------------------------------------------------------
 
@@ -151,6 +217,36 @@ MidiClip* TracktionTrack::insert_midi_clip(const std::string& name,
                                                         lifetime_.flag());
     auto* ptr = wrapper.get();
     clips_.push_back(std::move(wrapper));
+    return ptr;
+}
+
+AudioClip* TracktionTrack::insert_audio_clip(const std::string& name,
+                                               const std::string& file_path,
+                                               double start_beat,
+                                               double length_beats) {
+    lifetime_.check("Parent Edit has been deleted");
+    if (!track_) return nullptr;
+
+    auto sourceFile = juce::File(juce::String(file_path));
+    if (!sourceFile.existsAsFile())
+        throw std::runtime_error("Audio file not found: " + file_path);
+
+    auto& tempoSeq = edit_.tempoSequence;
+    auto startTime = tempoSeq.beatsToTime(te::BeatPosition::fromBeats(start_beat));
+    auto endTime = tempoSeq.beatsToTime(
+        te::BeatPosition::fromBeats(start_beat + length_beats));
+
+    te::TimeRange clipRange(startTime, endTime);
+    auto clipRef = track_->insertWaveClip(juce::String(name), sourceFile,
+                                           te::ClipPosition{clipRange}, false);
+
+    if (clipRef != nullptr)
+        clipRef->setName(juce::String(name));
+
+    auto wrapper = std::make_unique<TracktionAudioClip>(clipRef, edit_,
+                                                         lifetime_.flag());
+    auto* ptr = wrapper.get();
+    audio_clips_.push_back(std::move(wrapper));
     return ptr;
 }
 
@@ -274,6 +370,11 @@ void TracktionEdit::render(const RenderOptions& options) {
 
     // Delete existing file if present
     outputFile.deleteFile();
+
+    // Pump message loop so pending async operations complete (e.g. audio
+    // file loading for WaveAudioClips, node-graph initialisation).
+    if (auto* mm = juce::MessageManager::getInstanceWithoutCreating())
+        mm->runDispatchLoopUntil(100);
 
     // Use the simple Edit-level render (renders entire edit to WAV)
     bool success = te::Renderer::renderToFile(*edit_, outputFile, false);

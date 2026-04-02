@@ -45,6 +45,16 @@ NB_MODULE(_native, m) {
         .def("clear_notes", &MidiClip::clear_notes)
         .def("get_name", &MidiClip::get_name);
 
+    nb::class_<AudioClip>(m, "AudioClip")
+        .def("get_name", &AudioClip::get_name)
+        .def("get_file_path", &AudioClip::get_file_path)
+        .def("get_start_beat", &AudioClip::get_start_beat)
+        .def("get_length_beats", &AudioClip::get_length_beats)
+        .def("set_gain", &AudioClip::set_gain, nb::arg("linear"))
+        .def("get_gain", &AudioClip::get_gain)
+        .def("set_loop", &AudioClip::set_loop, nb::arg("looping"))
+        .def("get_loop", &AudioClip::get_loop);
+
     nb::class_<Plugin>(m, "Plugin")
         .def("get_name", &Plugin::get_name)
         .def("get_parameter_count", &Plugin::get_parameter_count)
@@ -59,6 +69,10 @@ NB_MODULE(_native, m) {
              nb::rv_policy::reference_internal,   // ref + keep Track alive
              nb::arg("name"), nb::arg("start_beat"),
              nb::arg("length_beats"))
+        .def("insert_audio_clip", &Track::insert_audio_clip,
+             nb::rv_policy::reference_internal,   // ref + keep Track alive
+             nb::arg("name"), nb::arg("file_path"),
+             nb::arg("start_beat"), nb::arg("length_beats"))
         .def("insert_plugin", &Track::insert_plugin,
              nb::rv_policy::reference_internal,   // ref + keep Track alive
              nb::arg("identifier"))

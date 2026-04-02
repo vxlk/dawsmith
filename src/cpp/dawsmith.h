@@ -46,6 +46,19 @@ public:
     virtual std::string get_name() const = 0;
 };
 
+class AudioClip {
+public:
+    virtual ~AudioClip() = default;
+    virtual std::string get_name() const = 0;
+    virtual std::string get_file_path() const = 0;
+    virtual double get_start_beat() const = 0;
+    virtual double get_length_beats() const = 0;
+    virtual void set_gain(double linear) = 0;
+    virtual double get_gain() const = 0;
+    virtual void set_loop(bool looping) = 0;
+    virtual bool get_loop() const = 0;
+};
+
 class Plugin {
 public:
     virtual ~Plugin() = default;
@@ -64,6 +77,10 @@ public:
     virtual MidiClip* insert_midi_clip(const std::string& name,
                                        double start_beat,
                                        double length_beats) = 0;
+    virtual AudioClip* insert_audio_clip(const std::string& name,
+                                          const std::string& file_path,
+                                          double start_beat,
+                                          double length_beats) = 0;
     virtual Plugin* insert_plugin(const std::string& identifier) = 0;
     virtual void set_volume(double linear) = 0;
     virtual void set_pan(double pan) = 0;

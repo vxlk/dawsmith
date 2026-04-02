@@ -85,6 +85,25 @@ private:
     LifetimeGuard lifetime_;
 };
 
+class TracktionAudioClip : public AudioClip {
+public:
+    TracktionAudioClip(te::WaveAudioClip::Ptr clip, te::Edit& edit,
+                       std::shared_ptr<std::atomic<bool>> parent_alive);
+    std::string get_name() const override;
+    std::string get_file_path() const override;
+    double get_start_beat() const override;
+    double get_length_beats() const override;
+    void set_gain(double linear) override;
+    double get_gain() const override;
+    void set_loop(bool looping) override;
+    bool get_loop() const override;
+
+private:
+    te::WaveAudioClip::Ptr clip_;
+    te::Edit& edit_;
+    LifetimeGuard lifetime_;
+};
+
 class TracktionPlugin : public Plugin {
 public:
     TracktionPlugin(te::Plugin::Ptr plugin,
@@ -111,6 +130,10 @@ public:
     MidiClip* insert_midi_clip(const std::string& name,
                                double start_beat,
                                double length_beats) override;
+    AudioClip* insert_audio_clip(const std::string& name,
+                                  const std::string& file_path,
+                                  double start_beat,
+                                  double length_beats) override;
     Plugin* insert_plugin(const std::string& identifier) override;
     void set_volume(double linear) override;
     void set_pan(double pan) override;
@@ -122,6 +145,7 @@ private:
     te::Engine& engine_;
     LifetimeGuard lifetime_;   // parent flag + own flag for children
     std::vector<std::unique_ptr<TracktionMidiClip>> clips_;
+    std::vector<std::unique_ptr<TracktionAudioClip>> audio_clips_;
     std::vector<std::unique_ptr<TracktionPlugin>> plugins_;
 };
 

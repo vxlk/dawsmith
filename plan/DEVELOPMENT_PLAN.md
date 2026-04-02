@@ -34,34 +34,25 @@ Fix the foundation before adding features.
 - [x] Test: concurrent edits, create/destroy cycles, GC order permutations
 - [x]: Investigate a better way to deal with the messagemanager - can we use async promises rather than spinning the loop for a certain number of ms in the tracktion_backend?
 
-### 1.2 Hot Reload / Live Session (replaces Built-in Plugins)
-- [ ] See `plan/HOT_RELOAD_PLAN.md` for full design
-- [ ] C++ foundation: `Engine::pump()`, looping, `Edit::clear_all_tracks()`, `Track::clear_clips/plugins()`
-- [ ] Python `LiveSession` class with file watcher and hot reload
-- [ ] `dawsmith.live("script.py")` entry point + CLI
-- [ ] REPL support with background pump thread
-- [ ] Loop mode for iterative development
-- [ ] Built-in plugins deprioritized — free VST3s (Dexed, Vital, Surge XT) are plentiful
+### 1.2 Audio Clips
+- [x] `track.insert_audio_clip(name, file_path, start_beat, length_beats)`
+- [x] Clip gain, looping
 
-### 1.3 Audio Clips
-- [ ] `track.insert_audio_clip(name, file_path, start_beat, length_beats)`
-- [ ] Clip gain, looping
-
-### 1.4 Automation
+### 1.3 Automation
 - [ ] `track.add_automation_point(param_name, beat, value)`
 - [ ] Linear interpolation minimum; curves stretch goal
 
-### 1.5 Stem Export
+### 1.4 Stem Export
 - [ ] `edit.render(opts)` with `opts.per_track = True` renders individual track WAVs
 - [ ] Solo/mute-based approach or Tracktion's built-in track render
 
-### 1.6 Cross-Platform CI
-- [ ] GitHub Actions matrix: Ubuntu 22.04, macOS 13 (x64), macOS 14 (ARM), Windows 2022
-- [ ] Python 3.10-3.13
+### 1.5 CI
+- [ ] GitHub Actions
+- [ ] Python 3.10-3.14
 - [ ] `pip install .` from source on all platforms
-- [ ] Tests run without VST3 plugins (use built-in plugins only)
+- [ ] Tests run without VST3 plugins (skip tests that require vst3)
 
-### 1.7 Core Tests (Layer 0-2)
+### 1.6 Core Tests (Layer 0-2)
 - [ ] Build/import/lifecycle tests (no segfault suite)
 - [ ] Data model tests (tempo, tracks, clips, notes, plugins, volume/pan/mute)
 - [ ] Basic render tests (silence check, duration check, sample rate, non-silent with built-in synth)
@@ -140,7 +131,15 @@ Pure Python serializers that consume the C++ data model. Each exporter reads tra
 - [ ] Pre-built wheels on PyPI for Windows/macOS/Linux (x64 + ARM macOS)
 - [ ] `pip install dawsmith` works without C++ toolchain
 
-### 3.6 Advanced Tests (Layer 4-5)
+### 3.6 Hot Reload / Live Session
+- [ ] See `plan/HOT_RELOAD_PLAN.md` for full design
+- [ ] C++ foundation: `Engine::pump()`, looping, `Edit::clear_all_tracks()`, `Track::clear_clips/plugins()`
+- [ ] Python `LiveSession` class with file watcher and hot reload
+- [ ] `dawsmith.live("script.py")` entry point + CLI
+- [ ] REPL support with background pump thread
+- [ ] Loop mode for iterative development
+
+### 3.7 Advanced Tests (Layer 4-5)
 - [ ] Integration: template -> render -> validate -> export -> verify
 - [ ] E2E: full pipeline end-to-end
 - [ ] Scale (nightly): 100 renders all pass, memory stable
@@ -198,14 +197,14 @@ dawsmith (GPLv3, Python + C++)
 ## Priority Order
 
 1. **Fix segfault** (object lifetime) -- blocks everything
-2. **Hot reload / live session** -- differentiator feature (see `plan/HOT_RELOAD_PLAN.md`)
-3. **Cross-platform CI** -- confidence in every change
-4. **Audio clips + automation** -- completes the core data model
-5. **EditData extraction** -- bridges C++ to Python export layer
-6. **MIDI export** -- simplest format, proves the export pipeline
-7. **Validation suite** -- proves renders are correct
-8. **DAWproject export** -- primary format target
-9. **Remaining exports** (RPP, ALS, metadata)
-10. **Stem export + batch runner** -- scale features
+2. **Cross-platform CI** -- confidence in every change
+3. **Audio clips + automation** -- completes the core data model
+4. **EditData extraction** -- bridges C++ to Python export layer
+5. **MIDI export** -- simplest format, proves the export pipeline
+6. **Validation suite** -- proves renders are correct
+7. **DAWproject export** -- primary format target
+8. **Remaining exports** (RPP, ALS, metadata)
+9. **Stem export + batch runner** -- scale features
+10. **Hot reload / live session** -- differentiator feature (see `plan/HOT_RELOAD_PLAN.md`)
 11. **PyPI wheels** -- adoption
 12. **dawsmith-pro** -- revenue
