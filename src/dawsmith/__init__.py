@@ -1,5 +1,9 @@
 """DAWsmith -- programmatic music production engine."""
 
+from __future__ import annotations
+
+from collections.abc import Iterable
+
 __version__ = "0.1.0"
 
 try:
@@ -17,7 +21,12 @@ try:
         ObjectDeletedError,
     )
 
-    def _add_notes(self, notes):
+    def _add_notes(
+        self,
+        notes: Iterable[
+            tuple[int, float, float] | tuple[int, float, float, int]
+        ],
+    ) -> None:
         """Add multiple notes to this clip.
 
         Args:
@@ -69,8 +78,11 @@ except ImportError as e:
         stacklevel=2,
     )
 
+# Musical modules -- import as namespaces so `dawsmith.pitch.C4` works in LSPs
+from dawsmith import pitch, chord, duration, velocity, gain, harmony  # noqa: E402
+
 # Musical constants -- always available even without native module
-from dawsmith.pitch import Pitch, Interval, note  # noqa: E402
+from dawsmith.pitch import Pitch, Interval, NoteName, note  # noqa: E402
 from dawsmith.pitch import (  # noqa: E402
     UNISON,
     MINOR_SECOND,
@@ -174,6 +186,13 @@ from dawsmith.harmony import (  # noqa: E402
 )
 
 __all__ = [
+    # Musicality modules (for `dawsmith.pitch.C4` style access)
+    "pitch",
+    "chord",
+    "duration",
+    "velocity",
+    "gain",
+    "harmony",
     # Native engine
     "create_engine",
     "Engine",
@@ -189,6 +208,7 @@ __all__ = [
     # Pitch (classes + intervals only; named pitches in dawsmith.pitch)
     "Pitch",
     "Interval",
+    "NoteName",
     "note",
     "UNISON",
     "MINOR_SECOND",

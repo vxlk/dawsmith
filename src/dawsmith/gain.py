@@ -14,6 +14,8 @@ Usage::
     track.set_volume(db(-12))     # ~0.251
 """
 
+from __future__ import annotations
+
 import math
 
 
@@ -21,84 +23,108 @@ class Gain:
     """Linear gain value with dB awareness.
 
     Resolves to float for the C++ layer via ``__float__``.
+
+    Args:
+        value: Linear gain multiplier (0.0 = silent, 1.0 = unity).
+        name: Optional display name (e.g. ``"UNITY"``).
     """
 
     __slots__ = ("_value", "_name")
 
-    def __init__(self, value, name=None):
+    def __init__(self, value: float, name: str | None = None) -> None:
         self._value = float(value)
         self._name = name
 
     @classmethod
-    def from_db(cls, db_value, name=None):
-        """Create a Gain from a decibel value."""
+    def from_db(cls, db_value: float, name: str | None = None) -> Gain:
+        """Create a Gain from a decibel value.
+
+        Args:
+            db_value: Gain in decibels (0 dB = unity).
+                Values at or below -100 dB are treated as silence.
+            name: Optional display name.
+
+        Returns:
+            A new ``Gain`` with the equivalent linear value.
+        """
         if db_value <= -100.0:
             return cls(0.0, name)
         return cls(10.0 ** (db_value / 20.0), name)
 
-    def to_db(self):
-        """Convert this linear gain to decibels."""
+    def to_db(self) -> float:
+        """Convert this linear gain to decibels.
+
+        Returns:
+            Gain in decibels, or ``-inf`` for silent (zero) gain.
+        """
         if self._value <= 0.0:
             return float("-inf")
         return 20.0 * math.log10(self._value)
 
-    def __float__(self):
+    def __float__(self) -> float:
         return self._value
 
-    def __int__(self):
+    def __int__(self) -> int:
         return int(self._value)
 
-    def __add__(self, other):
+    def __add__(self, other: float | Gain) -> Gain:
         return Gain(self._value + float(other))
 
-    def __radd__(self, other):
+    def __radd__(self, other: float) -> Gain:
         return Gain(float(other) + self._value)
 
-    def __sub__(self, other):
+    def __sub__(self, other: float | Gain) -> Gain:
         return Gain(self._value - float(other))
 
-    def __rsub__(self, other):
+    def __rsub__(self, other: float) -> Gain:
         return Gain(float(other) - self._value)
 
-    def __mul__(self, other):
+    def __mul__(self, other: float | Gain) -> Gain:
         return Gain(self._value * float(other))
 
-    def __rmul__(self, other):
+    def __rmul__(self, other: float) -> Gain:
         return Gain(float(other) * self._value)
 
-    def __truediv__(self, other):
+    def __truediv__(self, other: float | Gain) -> Gain:
         return Gain(self._value / float(other))
 
-    def __eq__(self, other):
-        return abs(self._value - float(other)) < 1e-9
+    def __eq__(self, other: object) -> bool:
+        return abs(self._value - float(other)) < 1e-9  # type: ignore[arg-type]
 
-    def __lt__(self, other):
+    def __lt__(self, other: float | Gain) -> bool:
         return self._value < float(other)
 
-    def __le__(self, other):
+    def __le__(self, other: float | Gain) -> bool:
         return self._value <= float(other)
 
-    def __gt__(self, other):
+    def __gt__(self, other: float | Gain) -> bool:
         return self._value > float(other)
 
-    def __ge__(self, other):
+    def __ge__(self, other: float | Gain) -> bool:
         return self._value >= float(other)
 
-    def __hash__(self):
+    def __hash__(self) -> int:
         return hash(self._value)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         if self._name:
             return f"{self._name}({self._value:.6f})"
         return f"Gain({self._value:.6f})"
 
     @property
-    def value(self):
+    def value(self) -> float:
+        """The linear gain multiplier."""
         return self._value
 
 
-def db(decibels):
+def db(decibels: float) -> Gain:
     """Convert a dB value to a Gain (linear).
+
+    Args:
+        decibels: Gain in decibels (0 dB = unity, -6 dB ~ half amplitude).
+
+    Returns:
+        A ``Gain`` object with the equivalent linear value.
 
     Example::
 
